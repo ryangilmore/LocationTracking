@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link type="text/css" rel="stylesheet" href="https://unpkg.com/bootstrap/dist/css/bootstrap.min.css"/>
+    <link type="text/css" rel="stylesheet" href="https://unpkg.com/bootstrap-vue@latest/dist/bootstrap-vue.min.css"/>
+    <link rel="stylesheet" href="https://cdn.lineicons.com/1.0.1/LineIcons.min.css">
+    <style>
+        .hide { display: none }
+    </style>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+      new Vue({
+      el: '#app',
+      data: {
+        id: null,
+        active: false,
+        server: 'https://app.yetcargo.melisa.mx:8044/',
+        endpoint: '/locations',
+        watchOperationId: null,
+        frequency: 2000,
+        autoUpdate: true,
+        color: 'blue',
+        visibilityState: true,
+        config: {
+          maximumAge: 0,
+          timeout: Infinity,
+          enableHighAccuracy: true
+        },
+        location: {
+          latitude: 0,
+          longitude: 0,
+          accuracy: 0,
+          speed: 0,
+          timestamp: 0
+        },
+        error: '',
+        errorSendLocation: '',
+        locations: [],
+      },
+      mounted: function() {
+        Number.prototype.toRad = function() {
+          return this * Math.PI / 180;
+        };
+        this.$axios = axios.create({
+          baseURL: this.server,
+          timeout: 10000
+        });
+        document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this), false);
+      },
+
+      methods: {
+        handleVisibilityChange: function() {
+          var me = this;
+          me.stop();
+          console.log(document.visibilityState)
+          if (document.visibilityState == "hidden") {
+            me.visibilityState = false;
+            setTimeout(function() {
+              console.log('init in background');
+              me.init();
+            }, 1000);
+          } else {
+            setTimeout(function() {
+              console.log('re init in foreground');
+              me.init();
+            }, 1000);
+          }
+        },
+        getHumanTime: function(timestamp) {
+          if (!moment || !timestamp) {
+            return '';
+          }
+          return moment(timestamp).format();
+        },
+        sendLocation: function(location) {
+          var me = this;
+          me.$axios.post(me.endpoint, location)
+          .then(function (response) {
+            console.log(response);
+            me.errorSendLocation = '';
+          })
+          .catch(function (error) {
+            console.log(error);
+            me.errorSendLocation = error.status;
+          });
+        },
+        init: function() {
+          this.autoUpdate = this.active = true;
+          this.updateLocation();
+        },
+
+        stop: function() {
+          clearInterval(this.watchOperationId);
+          this.autoUpdate = this.active = false;
+        },
+
+        fireUpdate: function(location) {
+          var newLocation = {
+            longitude: location.coords.longitude,
+            latitude: location.coords.latitude,
+            accuracy: location.coords.accuracy,
+            speed: location.coords.speed,
+            timestamp: location.timestamp,
+                    color: this.color,
+            id: this.id
+          };
+          console.log('gps location', location);
+          if (this.location.latitude === newLocation.latitude || this.location.longitude === newLocation.longitude) {
+            console.log('equal location, ignore');
+            this.updateLocation();
+            return;
+          }
+          this.location = newLocation;
+          this.locations.push(newLocation);
+          this.sendLocation(newLocation);
+          this.updateLocation();
+        },
+
+        fireError: function(error) {
+          var errorCode = error.code;
+          this.error = errorCode;
+          console.log(error);
+          this.updateLocation();
+        },
+
+        updateLocation: function() {
+          var me = this;
+          if (me.watchOperationId) {
+            clearInterval(me.watchOperationId);
+          }
+          if (!me.autoUpdate) {
+            return;
+          }
+          function pollPosition() {
+            navigator.geolocation.getCurrentPosition(
+              me.fireUpdate.bind(me),
+              me.fireError.bind(me),
+              me.config
+            );
+          };
+
+          me.watchOperationId = setTimeout(pollPosition, me.frequency);
+        },
+
+        calculateDistance: function(lat1, lon1, lat2, lon2) {
+          var R = 6371; // km
+          var dLat = (lat2 - lat1).toRad();
+          var dLon = (lon2 - lon1).toRad();
+          var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1.toRad()) * Math.cos(lat2.toRad()) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          var d = R * c;
+          return d;
+        }
+      }
+    })
+    });
+    </script>
+
+</head>
+<body>
+
+<div id="app" class="container">
+  <div class="row">
+    <div class="col-sm">
+      <table class="table">
+        <thead>
+          <tr>
+            <th colspan="2">
+              <button class="btn btn-primary btn-block" :disabled="active" type="button" value="Init" @click="init">
+                Init tracking!
+              </button>
+              <button class="btn btn-secondary btn-block" :disabled="!active"  type="button" value="Stop" @click="stop">
+                Stop tracking
+              </button>
+            </th>
+          </tr>
+          <tr>
+            <th colspan="2">
+              <input class="form-control" type="text" v-model="id" placeholder="ID" />
+            </th>
+          </tr>
+          <tr>
+            <th>
+              <label for="txtFrecuency">Frecuency: </label>
+              <select id="txtFrecuency" class="form-control" v-model="frequency">
+                <option value="2000" selected>2000</option>
+                <option value="5000">5000</option>
+                <option value="10000">10000</option>
+                <option value="10000">15000</option>
+                <option value="10000">20000</option>
+                <option value="10000">25000</option>
+                <option value="10000">30000</option>
+                <option value="10000">60000</option>
+              </select>
+            </th>
+            <th>
+              <label for="txtColor">Color: </label>
+              <select id="txtColor" class="form-control" v-model="color">
+                <option value="blue" selected>blue</option>
+                <option value="orange">orange</option>
+                <option value="pink">pink</option>
+                <option value="purple">purple</option>
+                <option value="yellow">yellow</option>
+                <option value="red">red</option>
+              </select>
+            </th>
+          </tr>
+        </thead>
+        <tr>
+          <th>Latitude</th>
+          <th>Longitude</th>
+        </tr>
+        <tr>
+          <td>{{location.latitude}}</td>
+          <td>{{location.longitude}}</td>
+        </tr>
+        <tr>
+          <th>Accuracy</th>
+          <th>Speed</th>
+        </tr>
+        <tr>
+          <td>{{location.accuracy}}</td>
+          <td>{{location.speed}}</td>
+        </tr>
+        <tr>
+          <th>Timestamp</th>
+          <th>Visibility</th>
+        </tr>
+        <tr>
+          <td>{{getHumanTime(location.timestamp)}}</td>
+          <td>{{visibilityState}}</td>
+        </tr>
+        <tfoot>
+          <tr :class="error === '' ? 'hide' : ''">
+            <td colspan="2">Error get location: {{error}}</td>
+          </tr>
+          <tr>
+            <td colspan="2" :class="errorSendLocation === '' ? 'hide' : ''">Error send location: {{errorSendLocation}}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+Resources
+</body>
+</html>
