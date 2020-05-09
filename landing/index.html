@@ -9,155 +9,158 @@
     <style>
         .hide { display: none }
     </style>
+    <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.0/axios.js"></script>
+    <script src="https://unpkg.com/bootstrap-vue@latest/dist/bootstrap-vue.min.js"></script>
     <script>
-      document.addEventListener('DOMContentLoaded', function () {
-      new Vue({
-      el: '#app',
-      data: {
-        id: null,
-        active: false,
-        server: 'https://app.yetcargo.melisa.mx:8044/',
-        endpoint: '/locations',
-        watchOperationId: null,
-        frequency: 2000,
-        autoUpdate: true,
-        color: 'blue',
-        visibilityState: true,
-        config: {
-          maximumAge: 0,
-          timeout: Infinity,
-          enableHighAccuracy: true
-        },
-        location: {
-          latitude: 0,
-          longitude: 0,
-          accuracy: 0,
-          speed: 0,
-          timestamp: 0
-        },
-        error: '',
-        errorSendLocation: '',
-        locations: [],
-      },
-      mounted: function() {
-        Number.prototype.toRad = function() {
-          return this * Math.PI / 180;
-        };
-        this.$axios = axios.create({
-          baseURL: this.server,
-          timeout: 10000
+
+        new Vue({
+          el: '#app',
+          data: {
+            id: null,
+            active: false,
+            server: 'https://app.yetcargo.melisa.mx:8044/',
+            endpoint: '/locations',
+            watchOperationId: null,
+            frequency: 2000,
+            autoUpdate: true,
+            color: 'blue',
+            visibilityState: true,
+            config: {
+              maximumAge: 0,
+              timeout: Infinity,
+              enableHighAccuracy: true
+            },
+            location: {
+              latitude: 0,
+              longitude: 0,
+              accuracy: 0,
+              speed: 0,
+              timestamp: 0
+            },
+            error: '',
+            errorSendLocation: '',
+            locations: [],
+          },
+          mounted: function() {
+            Number.prototype.toRad = function() {
+              return this * Math.PI / 180;
+            };
+            this.$axios = axios.create({
+              baseURL: this.server,
+              timeout: 10000
+            });
+            document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this), false);
+          },
+
+          methods: {
+            handleVisibilityChange: function() {
+              var me = this;
+              me.stop();
+              console.log(document.visibilityState)
+              if (document.visibilityState == "hidden") {
+                me.visibilityState = false;
+                setTimeout(function() {
+                  console.log('init in background');
+                  me.init();
+                }, 1000);
+              } else {
+                setTimeout(function() {
+                  console.log('re init in foreground');
+                  me.init();
+                }, 1000);
+              }
+            },
+            getHumanTime: function(timestamp) {
+              if (!moment || !timestamp) {
+                return '';
+              }
+              return moment(timestamp).format();
+            },
+            sendLocation: function(location) {
+              var me = this;
+              me.$axios.post(me.endpoint, location)
+              .then(function (response) {
+                console.log(response);
+                me.errorSendLocation = '';
+              })
+              .catch(function (error) {
+                console.log(error);
+                me.errorSendLocation = error.status;
+              });
+            },
+            init: function() {
+              this.autoUpdate = this.active = true;
+              this.updateLocation();
+            },
+
+            stop: function() {
+              clearInterval(this.watchOperationId);
+              this.autoUpdate = this.active = false;
+            },
+
+            fireUpdate: function(location) {
+              var newLocation = {
+                longitude: location.coords.longitude,
+                latitude: location.coords.latitude,
+                accuracy: location.coords.accuracy,
+                speed: location.coords.speed,
+                timestamp: location.timestamp,
+                        color: this.color,
+                id: this.id
+              };
+              console.log('gps location', location);
+              if (this.location.latitude === newLocation.latitude || this.location.longitude === newLocation.longitude) {
+                console.log('equal location, ignore');
+                this.updateLocation();
+                return;
+              }
+              this.location = newLocation;
+              this.locations.push(newLocation);
+              this.sendLocation(newLocation);
+              this.updateLocation();
+            },
+
+            fireError: function(error) {
+              var errorCode = error.code;
+              this.error = errorCode;
+              console.log(error);
+              this.updateLocation();
+            },
+
+            updateLocation: function() {
+              var me = this;
+              if (me.watchOperationId) {
+                clearInterval(me.watchOperationId);
+              }
+              if (!me.autoUpdate) {
+                return;
+              }
+              function pollPosition() {
+                navigator.geolocation.getCurrentPosition(
+                  me.fireUpdate.bind(me),
+                  me.fireError.bind(me),
+                  me.config
+                );
+              };
+
+              me.watchOperationId = setTimeout(pollPosition, me.frequency);
+            },
+
+            calculateDistance: function(lat1, lon1, lat2, lon2) {
+              var R = 6371; // km
+              var dLat = (lat2 - lat1).toRad();
+              var dLon = (lon2 - lon1).toRad();
+              var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1.toRad()) * Math.cos(lat2.toRad()) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+              var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+              var d = R * c;
+              return d;
+            }
+          }
         });
-        document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this), false);
-      },
 
-      methods: {
-        handleVisibilityChange: function() {
-          var me = this;
-          me.stop();
-          console.log(document.visibilityState)
-          if (document.visibilityState == "hidden") {
-            me.visibilityState = false;
-            setTimeout(function() {
-              console.log('init in background');
-              me.init();
-            }, 1000);
-          } else {
-            setTimeout(function() {
-              console.log('re init in foreground');
-              me.init();
-            }, 1000);
-          }
-        },
-        getHumanTime: function(timestamp) {
-          if (!moment || !timestamp) {
-            return '';
-          }
-          return moment(timestamp).format();
-        },
-        sendLocation: function(location) {
-          var me = this;
-          me.$axios.post(me.endpoint, location)
-          .then(function (response) {
-            console.log(response);
-            me.errorSendLocation = '';
-          })
-          .catch(function (error) {
-            console.log(error);
-            me.errorSendLocation = error.status;
-          });
-        },
-        init: function() {
-          this.autoUpdate = this.active = true;
-          this.updateLocation();
-        },
-
-        stop: function() {
-          clearInterval(this.watchOperationId);
-          this.autoUpdate = this.active = false;
-        },
-
-        fireUpdate: function(location) {
-          var newLocation = {
-            longitude: location.coords.longitude,
-            latitude: location.coords.latitude,
-            accuracy: location.coords.accuracy,
-            speed: location.coords.speed,
-            timestamp: location.timestamp,
-                    color: this.color,
-            id: this.id
-          };
-          console.log('gps location', location);
-          if (this.location.latitude === newLocation.latitude || this.location.longitude === newLocation.longitude) {
-            console.log('equal location, ignore');
-            this.updateLocation();
-            return;
-          }
-          this.location = newLocation;
-          this.locations.push(newLocation);
-          this.sendLocation(newLocation);
-          this.updateLocation();
-        },
-
-        fireError: function(error) {
-          var errorCode = error.code;
-          this.error = errorCode;
-          console.log(error);
-          this.updateLocation();
-        },
-
-        updateLocation: function() {
-          var me = this;
-          if (me.watchOperationId) {
-            clearInterval(me.watchOperationId);
-          }
-          if (!me.autoUpdate) {
-            return;
-          }
-          function pollPosition() {
-            navigator.geolocation.getCurrentPosition(
-              me.fireUpdate.bind(me),
-              me.fireError.bind(me),
-              me.config
-            );
-          };
-
-          me.watchOperationId = setTimeout(pollPosition, me.frequency);
-        },
-
-        calculateDistance: function(lat1, lon1, lat2, lon2) {
-          var R = 6371; // km
-          var dLat = (lat2 - lat1).toRad();
-          var dLon = (lon2 - lon1).toRad();
-          var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(lat1.toRad()) * Math.cos(lat2.toRad()) *
-          Math.sin(dLon / 2) * Math.sin(dLon / 2);
-          var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          var d = R * c;
-          return d;
-        }
-      }
-    })
-    });
     </script>
 
 </head>
@@ -247,6 +250,5 @@
   </div>
 </div>
 
-Resources
 </body>
 </html>
